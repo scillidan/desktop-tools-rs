@@ -1,0 +1,149 @@
+# desktop-tools-rs - hotkey desktop tools.
+# Combo syntax: ctrl+alt+h, win+f2, ^!+g (AHK sigils also work).
+# Repeating an edge/corner action cycles 1/2 -> 2/3 -> 1/3.
+# Optional: gap = 8  (px margin between snapped window and work area).
+# Hold this modifier + left mouse button to move a window. Every swallowed
+# click injects a mask key so releasing Win does not open the Start menu.
+dragModifier        = "win"
+# Open Save/Open dialogs in the folder of the last active Explorer window.
+quickSwitch         = true
+
+"win+alt+h"         = "moveToLeft"
+"win+alt+l"         = "moveToRight"
+"win+alt+k"         = "moveToTop"
+"win+alt+j"         = "moveToBottom"
+"ctrl+win+alt+h"    = "moveToTopLeft"
+"ctrl+win+alt+k"    = "moveToTopRight"
+"ctrl+win+alt+j"    = "moveToBottomLeft"
+"ctrl+win+alt+l"    = "moveToBottomRight"
+"ctrl+win+alt+c"    = "moveToCenter"
+"ctrl+win+alt+n"    = "nextDisplay"
+"ctrl+win+alt+p"    = "prevDisplay"
+"ctrl+win+alt+t"    = "toggleAlwaysOnTop"
+"ctrl+win+alt+f"    = "maximize"
+"ctrl+win+alt+m"    = "minimize"
+"ctrl+win+alt+s"    = "sizerMenu"
+"ctrl+win+alt+u"    = "undo"
+# Apply the remembered file-manager folder to the dialog in front. With no
+# dialog in front the combo is passed through to the app (DoubleCmd uses
+# ctrl+alt+l for "list view").
+"ctrl+alt+l"        = "fileDialog"
+# Turn all monitors off (any input wakes them); press again to wake. A monitor
+# that unplugs itself in standby gets its windows back on wake.
+"win+f2"            = "toggleScreen"
+# Cycle the visible windows of the active app, like macOS Cmd+`.
+"alt+`"             = "nextWindow"
+"alt+shift+`"       = "prevWindow"
+# "ctrl+alt+shift+q" = "quit"
+
+# Suppressed shell shortcuts (kbdhook swallows them, nothing happens).
+# Kept: win+d, win+l, win+tab, win+r, win+q (search), win+space (input
+# language), win+prtscn-adjacent shell items, alt+tab family (out of scope).
+# win+alt+1..9 need no rows: desktop switching above already owns them.
+# Magnifier + accessibility
+"win+shift+="       = "suppress" # win++ (the '+' key is OEM_PLUS; shift is inherent)
+"win+-"             = "suppress"
+"win+esc"           = "suppress"
+"win+ctrl+enter"    = "suppress" # narrator
+"win+ctrl+n"        = "suppress" # narrator settings
+"win+ctrl+c"        = "suppress" # colour filters
+# Game bar + recording
+"win+g"             = "suppress"
+"win+alt+r"         = "suppress"
+"win+alt+g"         = "suppress"
+"win+alt+m"         = "suppress"
+"win+alt+prtscn"    = "suppress"
+# Voice / clipboard / emoji / widgets
+"win+h"             = "suppress"
+"win+v"             = "suppress"
+"win+."             = "suppress" # emoji panel (same as win+;)
+"win+;"             = "suppress"
+"win+w"             = "suppress" # widgets (Win11)
+"win+c"             = "suppress" # chat (Win11) / Cortana (Win10)
+# Projection / cast / feedback / system info
+"win+p"             = "suppress"
+"win+k"             = "suppress"
+"win+f"             = "suppress"
+"win+pause"         = "suppress"
+"win+u"             = "suppress"
+# Taskbar digits + focus (win+alt+digits already = desktop switching)
+"win+1"             = "suppress"
+"win+2"             = "suppress"
+"win+3"             = "suppress"
+"win+4"             = "suppress"
+"win+5"             = "suppress"
+"win+6"             = "suppress"
+"win+7"             = "suppress"
+"win+8"             = "suppress"
+"win+9"             = "suppress"
+"win+0"             = "suppress"
+"win+shift+1"       = "suppress"
+"win+shift+2"       = "suppress"
+"win+shift+3"       = "suppress"
+"win+shift+4"       = "suppress"
+"win+shift+5"       = "suppress"
+"win+shift+6"       = "suppress"
+"win+shift+7"       = "suppress"
+"win+shift+8"       = "suppress"
+"win+shift+9"       = "suppress"
+"win+shift+0"       = "suppress"
+"win+ctrl+1"        = "suppress"
+"win+ctrl+2"        = "suppress"
+"win+ctrl+3"        = "suppress"
+"win+ctrl+4"        = "suppress"
+"win+ctrl+5"        = "suppress"
+"win+ctrl+6"        = "suppress"
+"win+ctrl+7"        = "suppress"
+"win+ctrl+8"        = "suppress"
+"win+ctrl+9"        = "suppress"
+"win+ctrl+0"        = "suppress"
+"win+t"             = "suppress"
+"win+b"             = "suppress"
+# Window management except win+d / win+l / win+tab
+"win+left"          = "suppress"
+"win+right"         = "suppress"
+"win+up"            = "suppress"
+"win+down"          = "suppress"
+"win+shift+left"    = "suppress"
+"win+shift+right"   = "suppress"
+"win+shift+up"      = "suppress"
+"win+shift+down"    = "suppress"
+"win+m"             = "suppress"
+"win+shift+m"       = "suppress"
+"win+home"          = "suppress"
+"win+z"             = "suppress" # snap layouts (Win11)
+"win+ctrl+d"        = "suppress" # new virtual desktop (win+` family covers switching)
+"win+ctrl+f4"       = "suppress" # close virtual desktop
+"win+ctrl+left"     = "suppress"
+"win+ctrl+right"    = "suppress"
+# Launchers except win+r / win+q
+"win+e"             = "suppress"
+"win+i"             = "suppress"
+"win+s"             = "suppress"
+"win+x"             = "suppress"
+"win+shift+s"       = "suppress" # snipping tool
+"win+prtscn"        = "suppress"
+
+# Virtual desktops, numbered left to right (Windows 10 native / X11 EWMH).
+# Win combos are suppressed before Explorer's own Win+number handling
+# (taskbar digits, jump lists) can react.
+"win+`"             = "nextDesktop"
+"win+shift+`"       = "prevDesktop"
+"win+alt+1"         = "switchToDesktop1"
+"win+alt+2"         = "switchToDesktop2"
+"win+alt+3"         = "switchToDesktop3"
+"win+alt+4"         = "switchToDesktop4"
+"win+alt+5"         = "switchToDesktop5"
+"win+alt+6"         = "switchToDesktop6"
+"win+alt+7"         = "switchToDesktop7"
+"win+alt+8"         = "switchToDesktop8"
+"win+alt+9"         = "switchToDesktop9"
+"alt+shift+1"       = "moveToDesktop1"
+"alt+shift+2"       = "moveToDesktop2"
+"alt+shift+3"       = "moveToDesktop3"
+"alt+shift+4"       = "moveToDesktop4"
+"alt+shift+5"       = "moveToDesktop5"
+"alt+shift+6"       = "moveToDesktop6"
+"alt+shift+7"       = "moveToDesktop7"
+"alt+shift+8"       = "moveToDesktop8"
+"alt+shift+9"       = "moveToDesktop9"

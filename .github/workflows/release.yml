@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: [v*]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: windows zip
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -- --skip hook_installs_and_uninstalls
+      - run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "desktop-tools-rs-$env:GITHUB_REF_NAME-win64"
+          $dir = "dist/$name"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item target/release/desktop-tools-rs.exe $dir
+          Copy-Item desktop-tools.toml, resize.toml $dir
+          Compress-Archive -Path "$dir/*" -DestinationPath "dist/$name.zip"
+          Get-FileHash "dist/$name.zip" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $name.zip" } |
+            Set-Content "dist/$name.zip.sha256"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          "dist/desktop-tools-rs-${{ github.ref_name }}-win64.zip"
+          "dist/desktop-tools-rs-${{ github.ref_name }}-win64.zip.sha256"
+          --title "${{ github.ref_name }}"
+          --generate-notes
