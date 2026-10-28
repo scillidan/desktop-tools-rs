@@ -54,7 +54,7 @@ what we took from each.
   size presets as fractions of the work area; shared with Sizer.
 - [FrancescElies/virgo](https://github.com/FrancescElies/virgo) — virtual
   desktops. Habit: a fixed row of numbered desktops; missing ones are created
-  on demand, bound to `win+alt+1..9` and `alt+shift+1..9`; `win+`` /
+  on demand, bound to `win+alt+1..9` and `win+shift+1..9`; `win+`` /
   `win+shift+`` cycle adjacent desktops.
 - [fenchai23/QuickSwitch](https://github.com/fenchai23/QuickSwitch) — file
   dialogs. Habit: a Save/Open dialog lands in the last file manager's folder,

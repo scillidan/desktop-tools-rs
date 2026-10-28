@@ -25,7 +25,7 @@ Authors: DeepSeek-4.1-Flash🧙‍♂️, Kimi-K2.7-Code🧙‍♂️, scillidan
 | `win+f2` | `toggleScreen` | power all monitors off; press again to wake (Windows). Windows stranded by a standby-unplugged monitor are put back on wake |
 | `win+alt+1..9` | `switchToDesktop1..9` | switch virtual desktop |
 | `win+`` / `win+shift+`` | `nextDesktop` / `prevDesktop` | cycle virtual desktops, wrapping around |
-| `alt+shift+1..9` | `moveToDesktop1..9` | move the active window there |
+| `win+shift+1..9` | `moveToDesktop1..9` | move the active window there |
 | `alt+`` / `alt+shift+`` | `nextWindow` / `prevWindow` | cycle visible windows of the same app |
 | any Win combo | `suppress` | swallow the combo without acting — disable shell shortcuts you never use (e.g. `"win+=" = "suppress"` keeps Magnifier closed) |
 | unbound | `unpinAll` | clear topmost on every window |
@@ -128,4 +128,5 @@ snapping/undo state machine, `src/win32.rs` and `src/x11.rs` the backends,
 and combo parsing, `build.rs` + `assets/desktop-tools.ico` the embedded exe
 icon (regenerate with `cargo test write_icon_asset -- --ignored`).
 
-Before a release, walk through [CHECKLIST.md](CHECKLIST.md).
+Before a release, run `cargo test` + `cargo clippy --all-targets` and re-read
+the compatibility contract in `AGENTS.md`.
