@@ -218,17 +218,24 @@ fn exe_basename(pid: u32) -> Option<String> {
     }
 }
 
-/// EnumWindows callback for the exe-name fallback in `same_app_windows`:
-/// collects zonable windows whose process image matches.
+/// EnumWindows callback context for the exe-name fallback in
+/// `same_app_windows`. A named struct, not a tuple: the callback's cast and
+/// the caller's layout must stay in lockstep (a `(String, &mut Vec<HWND>)`
+/// passed as `(String, Vec<HWND>)` once corrupted the heap here).
+struct ExeCtx {
+    exe: String,
+    out: Vec<HWND>,
+}
+
 unsafe extern "system" fn enum_same_exe(
     hwnd: HWND,
     lparam: LPARAM,
 ) -> windows::Win32::Foundation::BOOL {
-    let (exe, out) = &mut *(lparam.0 as *mut (String, Vec<HWND>));
+    let ctx = unsafe { &mut *(lparam.0 as *mut ExeCtx) };
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-    if zonable(hwnd) && exe_basename(pid).as_deref() == Some(exe.as_str()) {
-        out.push(hwnd);
+    if zonable(hwnd) && exe_basename(pid).as_deref() == Some(ctx.exe.as_str()) {
+        ctx.out.push(hwnd);
     }
     windows::Win32::Foundation::BOOL(1)
 }
@@ -236,6 +243,7 @@ unsafe extern "system" fn enum_same_exe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::UI::WindowsAndMessaging::{HWND_TOP, WS_VISIBLE};
 
     #[test]
     fn image_basename_takes_the_part_after_the_last_separator() {
@@ -248,6 +256,100 @@ mod tests {
             "wezterm-gui.exe"
         );
         assert_eq!(image_basename("wezterm-gui.exe"), "wezterm-gui.exe");
+    }
+
+    /// A small real window for the desktop-integration tests.
+    fn test_window() -> HWND {
+        unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                windows::core::w!("STATIC"),
+                windows::core::w!(""),
+                WS_POPUP | WS_VISIBLE,
+                0,
+                0,
+                200,
+                100,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("create test window")
+        }
+    }
+
+    /// All top-level HWNDs, top of the Z-order first.
+    fn z_order() -> Vec<HWND> {
+        unsafe extern "system" fn cb(
+            hwnd: HWND,
+            lparam: LPARAM,
+        ) -> windows::Win32::Foundation::BOOL {
+            let v = unsafe { &mut *(lparam.0 as *mut Vec<HWND>) };
+            v.push(hwnd);
+            windows::Win32::Foundation::BOOL(1)
+        }
+        let mut v = Vec::new();
+        unsafe {
+            let _ = EnumWindows(Some(cb), LPARAM(&mut v as *mut _ as isize));
+        }
+        v
+    }
+
+    /// Regression: the exe-name fallback's EnumWindows callback pushed through
+    /// a mismatched tuple cast and corrupted the heap (daemon crashed on
+    /// Alt+`). Enumerating real windows exercises the exact callback path.
+    #[test]
+    #[ignore = "creates real windows on the desktop"]
+    fn exe_fallback_enumerates_windows_of_our_own_process() {
+        let a = test_window();
+        let exe = exe_basename(std::process::id()).expect("own process image");
+        let mut ctx = ExeCtx {
+            exe,
+            out: Vec::new(),
+        };
+        unsafe {
+            let _ = EnumWindows(Some(enum_same_exe), LPARAM(&mut ctx as *mut _ as isize));
+        }
+        assert!(ctx.out.contains(&a), "fallback must find our own window");
+        unsafe {
+            let _ = DestroyWindow(a);
+        }
+    }
+
+    /// `toggleAlwaysOnBottom`'s mechanism: lower_to_bottom sinks the window,
+    /// and the 1 s tick pushes it back down after something raises it.
+    #[test]
+    #[ignore = "creates real windows on the desktop"]
+    fn always_on_bottom_sinks_and_reasserts_on_tick() {
+        let a = test_window();
+        let b = test_window();
+        let pos = |h: HWND| z_order().iter().position(|&w| w == h).expect("in Z order");
+
+        lower_to_bottom(a);
+        assert!(pos(a) > pos(b), "a must sink below b");
+
+        unsafe {
+            let _ = SetWindowPos(
+                a,
+                Some(HWND_TOP),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
+        assert!(pos(a) < pos(b), "a is raised again");
+        bottom_windows().push(a.0 as isize);
+        tick_always_on_bottom();
+        assert!(pos(a) > pos(b), "tick must re-assert HWND_BOTTOM");
+
+        bottom_windows().clear();
+        unsafe {
+            let _ = DestroyWindow(a);
+            let _ = DestroyWindow(b);
+        }
     }
 }
 
@@ -693,15 +795,15 @@ impl Platform for Win32 {
         let Some(exe) = exe_basename(pid) else {
             return vec![id];
         };
-        let mut by_exe: Vec<HWND> = Vec::new();
+        let mut exe_ctx = ExeCtx {
+            exe,
+            out: Vec::new(),
+        };
         unsafe {
-            let _ = EnumWindows(
-                Some(enum_same_exe),
-                LPARAM(&mut (exe, &mut by_exe) as *mut _ as isize),
-            );
+            let _ = EnumWindows(Some(enum_same_exe), LPARAM(&mut exe_ctx as *mut _ as isize));
         }
-        if by_exe.len() > 1 {
-            return by_exe.into_iter().map(id_of).collect();
+        if exe_ctx.out.len() > 1 {
+            return exe_ctx.out.into_iter().map(id_of).collect();
         }
         vec![id]
     }

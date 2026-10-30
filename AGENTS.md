@@ -117,6 +117,9 @@ green and do not reintroduce stricter checks without a comment:
    keep reporting "up". The drag ends on the hook's own `WM_LBUTTONUP`, never
    on a poll (polling cancelled every drag on the first move, verified
    2026-10-25). Drag-move works on WezTerm and QuteBrowser with `win+alt`.
+5. **Each WezTerm window is its own process** (`wezterm-gui.exe`), so the
+   PID match in `same_app_windows` finds only one window; the executable
+   image-name fallback is what makes Alt+` cycle them (verified 2026-10-30).
 
 ## What was deliberately NOT ported from RectangleWinPlus
 
