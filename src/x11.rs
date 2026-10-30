@@ -25,6 +25,7 @@ struct Atoms {
     state_max_v: u32,
     state_max_h: u32,
     state_above: u32,
+    state_below: u32,
     wm_change_state: u32,
     wm_window_type: u32,
     type_desktop: u32,
@@ -48,6 +49,7 @@ fn atoms(conn: &RustConnection) -> Result<Atoms> {
         state_max_v: intern(conn, b"_NET_WM_STATE_MAXIMIZED_VERT")?,
         state_max_h: intern(conn, b"_NET_WM_STATE_MAXIMIZED_HORZ")?,
         state_above: intern(conn, b"_NET_WM_STATE_ABOVE")?,
+        state_below: intern(conn, b"_NET_WM_STATE_BELOW")?,
         wm_change_state: intern(conn, b"WM_CHANGE_STATE")?,
         wm_window_type: intern(conn, b"_NET_WM_WINDOW_TYPE")?,
         type_desktop: intern(conn, b"_NET_WM_WINDOW_TYPE_DESKTOP")?,
@@ -428,6 +430,18 @@ impl Platform for X11 {
         // mode 1 = add, 0 = remove (toggle via _NET_WM_STATE message is mode 2,
         // but being explicit avoids a race with is_always_on_top).
         self.send_wm_state(id as u32, if on { 1 } else { 0 }, self.a.state_above, 0)?;
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    fn is_always_on_bottom(&self, id: WinId) -> bool {
+        self.prop32(id as u32, self.a.wm_state)
+            .map(|s| s.contains(&self.a.state_below))
+            .unwrap_or(false)
+    }
+
+    fn set_always_on_bottom(&self, id: WinId, on: bool) -> Result<()> {
+        self.send_wm_state(id as u32, if on { 1 } else { 0 }, self.a.state_below, 0)?;
         self.conn.flush()?;
         Ok(())
     }

@@ -20,6 +20,9 @@ quickSwitch         = true
 "ctrl+win+alt+n"    = "nextDisplay"
 "ctrl+win+alt+p"    = "prevDisplay"
 "ctrl+win+alt+t"    = "toggleAlwaysOnTop"
+# Windows has no bottommost flag: the daemon re-lowers the window every 1 s
+# (activation raises it), like the monitor power-off re-assert.
+"ctrl+win+alt+b"    = "toggleAlwaysOnBottom"
 "ctrl+win+alt+f"    = "maximize"
 "ctrl+win+alt+m"    = "minimize"
 "ctrl+win+alt+s"    = "sizerMenu"

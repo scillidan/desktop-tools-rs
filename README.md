@@ -18,6 +18,7 @@ Authors: DeepSeek-4.1-Flash🧙‍♂️, Kimi-K2.7-Code🧙‍♂️, scillidan
 | `ctrl+win+alt+f` | `maximize` | toggle maximize |
 | `ctrl+win+alt+m` | `minimize` | minimize to taskbar |
 | `ctrl+win+alt+t` | `toggleAlwaysOnTop` | toggle topmost |
+| `ctrl+win+alt+b` | `toggleAlwaysOnBottom` | keep the window at the bottom of the Z order (re-asserted every 1 s on Windows; `_NET_WM_STATE_BELOW` on X11) |
 | `ctrl+win+alt+n/p` | `nextDisplay` / `prevDisplay` | next/previous monitor, scaled by work area |
 | `ctrl+win+alt+s` | `sizerMenu` | size presets at the cursor (Windows); cycles on X11 |
 | `ctrl+win+alt+u` | `undo` | step back through snap/maximize/minimize history |

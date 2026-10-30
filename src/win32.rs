@@ -27,7 +27,7 @@ use crate::vdesk;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, POINT, RECT, WPARAM,
@@ -50,12 +50,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DestroyMenu, DestroyWindow, DispatchMessageW,
     EnumWindows, GetAncestor, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW,
-    GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
-    MessageBoxW, PostMessageW, SetForegroundWindow, SetProcessDPIAware, SetTimer, SetWindowPos,
-    ShowWindow, TrackPopupMenu, GA_ROOT, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, MB_ICONWARNING,
-    MB_OK, MF_STRING, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MAXIMIZE,
-    SW_MINIMIZE, SW_NORMAL, SW_RESTORE, TPM_LEFTALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_TOPALIGN,
-    WINDOW_EX_STYLE, WM_HOTKEY, WM_NULL, WM_TIMER, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
+    IsZoomed, MessageBoxW, PostMessageW, SetForegroundWindow, SetProcessDPIAware, SetTimer,
+    SetWindowPos, ShowWindow, TrackPopupMenu, GA_ROOT, GWL_EXSTYLE, HWND_BOTTOM, HWND_NOTOPMOST,
+    HWND_TOPMOST, MB_ICONWARNING, MB_OK, MF_STRING, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_RESTORE, TPM_LEFTALIGN, TPM_NONOTIFY,
+    TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WM_HOTKEY, WM_NULL, WM_TIMER, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 
 pub(crate) fn hwnd_of(id: WinId) -> HWND {
@@ -149,6 +150,105 @@ unsafe extern "system" fn enum_topmost(
         list.push(hwnd);
     }
     windows::Win32::Foundation::BOOL(1)
+}
+
+/// Windows has no always-on-bottom flag: `toggleAlwaysOnBottom` remembers the
+/// lowered HWNDs here and the daemon's 1 s timer re-asserts HWND_BOTTOM — the
+/// same re-assert trick as the screen power-off, since any activation would
+/// otherwise raise the window again.
+static BOTTOM_WINDOWS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
+
+fn bottom_windows() -> std::sync::MutexGuard<'static, Vec<isize>> {
+    BOTTOM_WINDOWS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn lower_to_bottom(hwnd: HWND) {
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_BOTTOM),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+/// Re-assert every tracked always-on-bottom window; called by the 1 s timer.
+pub fn tick_always_on_bottom() {
+    bottom_windows().retain(|&raw| {
+        let hwnd = hwnd_of(raw as WinId);
+        let alive = unsafe { IsWindow(Some(hwnd)) }.as_bool();
+        if alive {
+            lower_to_bottom(hwnd);
+        }
+        alive
+    });
+}
+
+fn image_basename(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
+/// Lowercased image file name of `pid` (`wezterm-gui.exe`), for matching the
+/// windows of multi-process apps in `same_app_windows`.
+fn exe_basename(pid: u32) -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    unsafe {
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return None;
+        };
+        let mut buf = [0u16; 260];
+        let mut n = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut n)
+            .is_ok();
+        let _ = CloseHandle(h);
+        if !ok {
+            return None;
+        }
+        let name = image_basename(&String::from_utf16_lossy(&buf[..n as usize])).to_string();
+        (!name.is_empty()).then_some(name)
+    }
+}
+
+/// EnumWindows callback for the exe-name fallback in `same_app_windows`:
+/// collects zonable windows whose process image matches.
+unsafe extern "system" fn enum_same_exe(
+    hwnd: HWND,
+    lparam: LPARAM,
+) -> windows::Win32::Foundation::BOOL {
+    let (exe, out) = &mut *(lparam.0 as *mut (String, Vec<HWND>));
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    if zonable(hwnd) && exe_basename(pid).as_deref() == Some(exe.as_str()) {
+        out.push(hwnd);
+    }
+    windows::Win32::Foundation::BOOL(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_basename_takes_the_part_after_the_last_separator() {
+        assert_eq!(
+            image_basename(r"C:\Tools\WezTerm\wezterm-gui.exe"),
+            "wezterm-gui.exe"
+        );
+        assert_eq!(
+            image_basename(r"C:/Tools/wezterm-gui.exe"),
+            "wezterm-gui.exe"
+        );
+        assert_eq!(image_basename("wezterm-gui.exe"), "wezterm-gui.exe");
+    }
 }
 
 pub(crate) fn rect_of(r: RECT) -> Rect {
@@ -495,6 +595,38 @@ impl Platform for Win32 {
         Ok(())
     }
 
+    fn is_always_on_bottom(&self, id: WinId) -> bool {
+        bottom_windows().contains(&(hwnd_of(id).0 as isize))
+    }
+
+    fn set_always_on_bottom(&self, id: WinId, on: bool) -> Result<()> {
+        let hwnd = hwnd_of(id);
+        let raw = hwnd.0 as isize;
+        let mut tracked = bottom_windows();
+        if on {
+            if !tracked.contains(&raw) {
+                tracked.push(raw);
+            }
+            lower_to_bottom(hwnd);
+        } else {
+            tracked.retain(|&h| h != raw);
+            // Back to the top of the regular (non-topmost) band.
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    Some(HWND_NOTOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE,
+                )
+                .context("SetWindowPos(NOTOPMOST) failed")?;
+            }
+        }
+        Ok(())
+    }
+
     fn minimize(&self, id: WinId) -> Result<()> {
         unsafe {
             let _ = ShowWindow(hwnd_of(id), SW_MINIMIZE);
@@ -551,10 +683,27 @@ impl Platform for Win32 {
         unsafe {
             let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize));
         }
-        if ctx.out.is_empty() {
-            return vec![id];
+        if ctx.out.len() > 1 {
+            return ctx.out.into_iter().map(id_of).collect();
         }
-        ctx.out.into_iter().map(id_of).collect()
+        // One window per process: each WezTerm window is its own
+        // wezterm-gui.exe, so the PID match finds only the foreground window.
+        // Fall back to the executable image name to still cycle the app's
+        // windows.
+        let Some(exe) = exe_basename(pid) else {
+            return vec![id];
+        };
+        let mut by_exe: Vec<HWND> = Vec::new();
+        unsafe {
+            let _ = EnumWindows(
+                Some(enum_same_exe),
+                LPARAM(&mut (exe, &mut by_exe) as *mut _ as isize),
+            );
+        }
+        if by_exe.len() > 1 {
+            return by_exe.into_iter().map(id_of).collect();
+        }
+        vec![id]
     }
 
     fn focus(&self, id: WinId) -> Result<()> {
@@ -877,6 +1026,8 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
                 // Re-assert the monitor power-off and restore windows whose
                 // monitor unplugged itself while the screens were off.
                 crate::screen::tick();
+                // Re-assert always-on-bottom windows (activation raises them).
+                tick_always_on_bottom();
                 // A reload often finishes in a few ms, so hold its icon for at
                 // least 1 s. The 1 s timer makes the hold 1-2 s in practice.
                 if flash.is_some_and(|t| t.elapsed() >= Duration::from_secs(1)) {

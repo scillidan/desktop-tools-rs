@@ -94,7 +94,7 @@ and Linux X11. Cross-platform from day one; the two backends implement one
 - `src/config.rs` — `Action` enum (move/maximize names match RectangleWinPlus;
   `minimize`, `unpinAll`, `nextWindow`, `prevWindow`, `sizerMenu`, `undo`,
   numbered `switchToDesktopN`/`moveToDesktopN`, `toggleScreen`,
-  `nextDesktop`/`prevDesktop`, `quit` are additions), `gap` setting,
+  `toggleAlwaysOnBottom`, `nextDesktop`/`prevDesktop`, `quit` are additions), `gap` setting,
   `dragModifier`, `quickSwitch`, `resize.toml` preset parsing, TOML parse,
   reload/mtime/conflict-report helpers.
 

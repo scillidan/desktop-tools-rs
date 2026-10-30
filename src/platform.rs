@@ -47,12 +47,23 @@ pub trait Platform {
     fn set_maximized(&self, id: WinId, on: bool) -> Result<()>;
     fn is_always_on_top(&self, id: WinId) -> bool;
     fn set_always_on_top(&self, id: WinId, on: bool) -> Result<()>;
+    /// Keep the window at the bottom of the Z order (counterpart of topmost).
+    /// Windows has no native flag; that backend re-asserts it on its 1 s tick.
+    fn is_always_on_bottom(&self, _id: WinId) -> bool {
+        false
+    }
+    fn set_always_on_bottom(&self, _id: WinId, _on: bool) -> Result<()> {
+        anyhow::bail!("always-on-bottom is not supported on this platform")
+    }
     fn minimize(&self, id: WinId) -> Result<()>;
     /// Re-show a minimized window (SW_RESTORE / X11 MapWindow).
     fn restore(&self, id: WinId) -> Result<()>;
     /// Clear the topmost flag from every window (DeskPins "unpin all").
     fn unpin_all(&self) -> Result<()>;
-    /// Visible windows of the same process as `id`, top of the Z-order first.
+    /// Visible windows of the same app as `id`, top of the Z-order first.
+    /// "Same app" is same process; Windows falls back to the executable
+    /// image name so multi-process apps (each WezTerm window is its own
+    /// wezterm-gui.exe) still cycle.
     fn same_app_windows(&self, id: WinId) -> Vec<WinId> {
         vec![id]
     }
@@ -219,6 +230,11 @@ impl<P: Platform> App<P> {
                 let t = self.target(forced)?;
                 let on = !self.p.is_always_on_top(t);
                 self.p.set_always_on_top(t, on)
+            }
+            Action::ToggleAlwaysOnBottom => {
+                let t = self.target(forced)?;
+                let on = !self.p.is_always_on_bottom(t);
+                self.p.set_always_on_bottom(t, on)
             }
             Action::Minimize => {
                 self.last_cycle = None;

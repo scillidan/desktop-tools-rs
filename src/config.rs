@@ -25,6 +25,7 @@ pub enum Action {
     NextDisplay,
     PrevDisplay,
     ToggleAlwaysOnTop,
+    ToggleAlwaysOnBottom,
     Minimize,
     UnpinAll,
     NextWindow,
@@ -67,6 +68,7 @@ impl FromStr for Action {
             "nextDisplay" => Action::NextDisplay,
             "prevDisplay" => Action::PrevDisplay,
             "toggleAlwaysOnTop" => Action::ToggleAlwaysOnTop,
+            "toggleAlwaysOnBottom" => Action::ToggleAlwaysOnBottom,
             "minimize" => Action::Minimize,
             "unpinAll" => Action::UnpinAll,
             "nextWindow" => Action::NextWindow,
@@ -117,6 +119,7 @@ impl Action {
             "nextDisplay",
             "prevDisplay",
             "toggleAlwaysOnTop",
+            "toggleAlwaysOnBottom",
             "minimize",
             "unpinAll",
             "nextWindow",
@@ -338,7 +341,7 @@ mod tests {
     #[test]
     fn parses_default_config() {
         let cfg = parse(include_str!("../desktop-tools.toml")).unwrap();
-        assert_eq!(cfg.bindings.len(), 107);
+        assert_eq!(cfg.bindings.len(), 108);
         assert_eq!(cfg.settings.gap, 0);
         assert!(cfg.settings.quick_switch);
         assert!(cfg.settings.drag_modifier.win && !cfg.settings.drag_modifier.alt);
