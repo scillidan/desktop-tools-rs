@@ -351,6 +351,32 @@ mod tests {
             let _ = DestroyWindow(b);
         }
     }
+
+    /// The trait-level toggle the hotkey dispatches to: on = sink + track,
+    /// off = untrack. Uses another process's window style of call (trait
+    /// method on Win32), not the free helpers.
+    #[test]
+    #[ignore = "creates real windows on the desktop"]
+    fn platform_toggle_always_on_bottom_tracks_and_untracks() {
+        let p = init();
+        let a = test_window();
+        let b = test_window();
+        let id = id_of(a);
+        let pos = |h: HWND| z_order().iter().position(|&w| w == h).expect("in Z order");
+
+        assert!(!p.is_always_on_bottom(id));
+        p.set_always_on_bottom(id, true).expect("sink");
+        assert!(p.is_always_on_bottom(id), "tracked after on");
+        assert!(pos(a) > pos(b), "a must sink below b");
+
+        p.set_always_on_bottom(id, false).expect("restore");
+        assert!(!p.is_always_on_bottom(id), "untracked after off");
+
+        unsafe {
+            let _ = DestroyWindow(a);
+            let _ = DestroyWindow(b);
+        }
+    }
 }
 
 pub(crate) fn rect_of(r: RECT) -> Rect {
