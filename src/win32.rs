@@ -51,12 +51,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DestroyMenu, DestroyWindow, DispatchMessageW,
     EnumWindows, GetAncestor, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageW,
     GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-    IsZoomed, MessageBoxW, PostMessageW, SetForegroundWindow, SetProcessDPIAware, SetTimer,
-    SetWindowPos, ShowWindow, TrackPopupMenu, GA_ROOT, GWL_EXSTYLE, HWND_BOTTOM, HWND_NOTOPMOST,
-    HWND_TOPMOST, MB_ICONWARNING, MB_OK, MF_STRING, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_RESTORE, TPM_LEFTALIGN, TPM_NONOTIFY,
-    TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WM_HOTKEY, WM_NULL, WM_TIMER, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    IsZoomed, KillTimer, MessageBoxW, PostMessageW, SetForegroundWindow, SetProcessDPIAware,
+    SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, GA_ROOT, GWL_EXSTYLE, HWND_BOTTOM,
+    HWND_NOTOPMOST, HWND_TOPMOST, MB_ICONWARNING, MB_OK, MF_STRING, MSG, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_RESTORE,
+    TPM_LEFTALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WM_HOTKEY, WM_NULL,
+    WM_TIMER, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 pub(crate) fn hwnd_of(id: WinId) -> HWND {
@@ -176,7 +176,8 @@ fn lower_to_bottom(hwnd: HWND) {
     }
 }
 
-/// Re-assert every tracked always-on-bottom window; called by the 1 s timer.
+/// Re-assert every tracked always-on-bottom window; TIMER_BOTTOM drives the
+/// period (`bottomReassertMs`).
 pub fn tick_always_on_bottom() {
     bottom_windows().retain(|&raw| {
         let hwnd = hwnd_of(raw as WinId);
@@ -995,6 +996,16 @@ fn unregister_hotkeys(p: &mut Win32) {
 
 const TIMER_RELOAD: usize = 1;
 const TIMER_DIALOGS: usize = 2;
+const TIMER_BOTTOM: usize = 3;
+
+/// (Re-)arm the always-on-bottom re-assert timer; the period is a setting, so
+/// a config reload calls this with the new value.
+fn reset_bottom_timer(ms: u64) {
+    unsafe {
+        let _ = KillTimer(None, TIMER_BOTTOM);
+        SetTimer(None, TIMER_BOTTOM, ms as u32, None);
+    }
+}
 
 fn status_text(total: usize, failed: &[String], suspended: bool) -> String {
     if suspended {
@@ -1126,6 +1137,8 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
     let mut mtime = config::modified(&cfg_path);
     let timer = unsafe { SetTimer(None, TIMER_RELOAD, 1000, None) };
     let dialog_timer = unsafe { SetTimer(None, TIMER_DIALOGS, 250, None) };
+    reset_bottom_timer(cfg.settings.bottom_reassert_ms);
+    let bottom_timer = TIMER_BOTTOM;
 
     loop {
         let mut msg = MSG::default();
@@ -1154,8 +1167,6 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
                 // Re-assert the monitor power-off and restore windows whose
                 // monitor unplugged itself while the screens were off.
                 crate::screen::tick();
-                // Re-assert always-on-bottom windows (activation raises them).
-                tick_always_on_bottom();
                 // A reload often finishes in a few ms, so hold its icon for at
                 // least 1 s. The 1 s timer makes the hold 1-2 s in practice.
                 if flash.is_some_and(|t| t.elapsed() >= Duration::from_secs(1)) {
@@ -1172,6 +1183,11 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
                     reload(&mut app, &mut cfg, &mut tray, suspended, &cfg_path);
                     flash = Some(Instant::now());
                 }
+            }
+            WM_TIMER if msg.wParam.0 == bottom_timer => {
+                // Re-assert always-on-bottom windows (activation raises them);
+                // the timer's period is the `bottomReassertMs` setting.
+                tick_always_on_bottom();
             }
             WM_TIMER if msg.wParam.0 == dialog_timer && !suspended => {
                 dialogs::tick(cfg.settings.quick_switch);
@@ -1262,6 +1278,7 @@ fn reload(app: &mut App<Win32>, cfg: &mut Config, tray: &mut Tray, suspended: bo
         *cfg = new;
         app.set_gap(cfg.settings.gap);
         mouse::set_modifiers(cfg.settings.drag_modifier);
+        reset_bottom_timer(cfg.settings.bottom_reassert_ms);
         tray.set_status("desktop-tools-rs — config reloaded (hotkeys suspended)");
         tray.set_state(State::ReloadOk);
         return;
@@ -1286,6 +1303,7 @@ fn reload(app: &mut App<Win32>, cfg: &mut Config, tray: &mut Tray, suspended: bo
     }
     app.set_gap(cfg.settings.gap);
     mouse::set_modifiers(cfg.settings.drag_modifier);
+    reset_bottom_timer(cfg.settings.bottom_reassert_ms);
     if let Some(msg) = config::conflict_message(&failed) {
         eprintln!("warn: {msg}");
     }

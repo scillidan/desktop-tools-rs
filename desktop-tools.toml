@@ -7,6 +7,10 @@
 dragModifier        = "win"
 # Open Save/Open dialogs in the folder of the last active Explorer window.
 quickSwitch         = true
+# How often always-on-bottom windows are pushed back down (ms). Windows has no
+# bottommost flag: activation raises a window, so the daemon re-lowers it on
+# this timer. Shorter = stricter pinning, costs no memory; below 100 is clamped.
+bottomReassertMs    = 250
 
 "win+alt+h"         = "moveToLeft"
 "win+alt+l"         = "moveToRight"

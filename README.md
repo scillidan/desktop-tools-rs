@@ -81,6 +81,7 @@ warning, never fatal.
 | `gap` | `0` | inset the work area by N px on every side |
 | `dragModifier` | `"win"` | modifier held with the left button to drag-move (Windows) |
 | `quickSwitch` | `true` | put Save/Open dialogs into the last file-manager folder (Windows) |
+| `bottomReassertMs` | `250` | re-lower always-on-bottom windows every N ms; hot-reloads (Windows) |
 
 The file is re-read within ~1 s of saving; a TOML error keeps the old config
 running and is reported in the tray/stderr.

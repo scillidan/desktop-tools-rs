@@ -146,6 +146,8 @@ pub struct Settings {
     pub drag_modifier: Mods,
     /// Put file dialogs into Explorer's current folder (Windows).
     pub quick_switch: bool,
+    /// Milliseconds between always-on-bottom re-asserts (Windows).
+    pub bottom_reassert_ms: u64,
 }
 
 impl Default for Settings {
@@ -161,6 +163,7 @@ impl Default for Settings {
                 win: true,
             },
             quick_switch: true,
+            bottom_reassert_ms: 250,
         }
     }
 }
@@ -301,6 +304,14 @@ pub fn parse(text: &str) -> Result<Config> {
             }
             continue;
         }
+        if combo == "bottomReassertMs" {
+            match action.as_integer() {
+                // Below 100 ms the Z-order spam outweighs the tighter pinning.
+                Some(n) => settings.bottom_reassert_ms = n.clamp(100, 60_000) as u64,
+                None => eprintln!("warn: `bottomReassertMs` must be an integer; using 1000"),
+            }
+            continue;
+        }
         if combo == "dragModifier" {
             match action.as_str() {
                 Some(s) => match s.parse::<Mods>() {
@@ -400,6 +411,32 @@ mod tests {
                 .unwrap()
                 .settings
                 .quick_switch
+        );
+    }
+
+    #[test]
+    fn parses_bottom_reassert_ms_and_clamps_it() {
+        assert_eq!(parse("").unwrap().settings.bottom_reassert_ms, 250);
+        assert_eq!(
+            parse("bottomReassertMs = 250\n")
+                .unwrap()
+                .settings
+                .bottom_reassert_ms,
+            250
+        );
+        assert_eq!(
+            parse("bottomReassertMs = 1\n")
+                .unwrap()
+                .settings
+                .bottom_reassert_ms,
+            100
+        );
+        assert_eq!(
+            parse("bottomReassertMs = 999999\n")
+                .unwrap()
+                .settings
+                .bottom_reassert_ms,
+            60_000
         );
     }
 
