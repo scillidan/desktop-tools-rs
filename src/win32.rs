@@ -53,7 +53,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
     IsZoomed, KillTimer, MessageBoxW, PostMessageW, SetForegroundWindow, SetProcessDPIAware,
     SetTimer, SetWindowPos, ShowWindow, TrackPopupMenu, GA_ROOT, GWL_EXSTYLE, HWND_BOTTOM,
-    HWND_NOTOPMOST, HWND_TOPMOST, MB_ICONWARNING, MB_OK, MF_STRING, MSG, SWP_NOACTIVATE,
+    HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, MB_ICONWARNING, MB_OK, MF_STRING, MSG, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_RESTORE,
     TPM_LEFTALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WM_HOTKEY, WM_NULL,
     WM_TIMER, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
@@ -244,7 +244,7 @@ unsafe extern "system" fn enum_same_exe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows::Win32::UI::WindowsAndMessaging::{HWND_TOP, WS_VISIBLE};
+    use windows::Win32::UI::WindowsAndMessaging::{PeekMessageW, HWND_TOP, PM_REMOVE, WS_VISIBLE};
 
     #[test]
     fn image_basename_takes_the_part_after_the_last_separator() {
@@ -319,7 +319,7 @@ mod tests {
     }
 
     /// `toggleAlwaysOnBottom`'s mechanism: lower_to_bottom sinks the window,
-    /// and the 1 s tick pushes it back down after something raises it.
+    /// and the timer tick pushes it back down after something raises it.
     #[test]
     #[ignore = "creates real windows on the desktop"]
     fn always_on_bottom_sinks_and_reasserts_on_tick() {
@@ -372,11 +372,45 @@ mod tests {
 
         p.set_always_on_bottom(id, false).expect("restore");
         assert!(!p.is_always_on_bottom(id), "untracked after off");
+        assert!(
+            pos(a) < pos(b),
+            "undo raises the just-focused window on top"
+        );
 
         unsafe {
             let _ = DestroyWindow(a);
             let _ = DestroyWindow(b);
         }
+    }
+
+    /// The daemon matches WM_TIMER by the id SetTimer RETURNS: with a NULL
+    /// window the requested TIMER_BOTTOM id is ignored and Windows generates
+    /// its own. Matching on the constant instead meant the re-assert tick
+    /// never ran in the daemon (a bottomed window raised by a click stayed
+    /// raised forever). This test pumps the real message loop.
+    #[test]
+    #[ignore = "real desktop: pumps thread timer messages"]
+    fn bottom_timer_wm_timer_carries_the_returned_id() {
+        let id = reset_bottom_timer(0, 50);
+        assert_ne!(id, 0, "SetTimer must succeed");
+        let mut seen = false;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) && !seen {
+            let mut msg = MSG::default();
+            while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+                if msg.message == WM_TIMER && msg.wParam.0 == id {
+                    seen = true;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Re-arm (the config-reload path) must also return a live id.
+        let id2 = reset_bottom_timer(id, 50);
+        assert_ne!(id2, 0);
+        unsafe {
+            let _ = KillTimer(None, id2);
+        }
+        assert!(seen, "no WM_TIMER arrived with the id SetTimer returned");
     }
 }
 
@@ -739,18 +773,11 @@ impl Platform for Win32 {
             lower_to_bottom(hwnd);
         } else {
             tracked.retain(|&h| h != raw);
-            // Back to the top of the regular (non-topmost) band.
+            // Undo always targets the window the user just focused: raise it
+            // to the top (unpinned), like a normal focus would.
             unsafe {
-                SetWindowPos(
-                    hwnd,
-                    Some(HWND_NOTOPMOST),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE,
-                )
-                .context("SetWindowPos(NOTOPMOST) failed")?;
+                SetWindowPos(hwnd, Some(HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+                    .context("SetWindowPos(HWND_TOP) failed")?;
             }
         }
         Ok(())
@@ -999,11 +1026,16 @@ const TIMER_DIALOGS: usize = 2;
 const TIMER_BOTTOM: usize = 3;
 
 /// (Re-)arm the always-on-bottom re-assert timer; the period is a setting, so
-/// a config reload calls this with the new value.
-fn reset_bottom_timer(ms: u64) {
+/// a config reload calls this with the new value. Returns the timer id that
+/// WM_TIMER will carry: with a NULL window the requested TIMER_BOTTOM id is
+/// ignored and the system generates the real one, so the caller MUST match on
+/// this return value (same convention as the reload/dialog timers).
+fn reset_bottom_timer(old: usize, ms: u64) -> usize {
     unsafe {
-        let _ = KillTimer(None, TIMER_BOTTOM);
-        SetTimer(None, TIMER_BOTTOM, ms as u32, None);
+        if old != 0 {
+            let _ = KillTimer(None, old);
+        }
+        SetTimer(None, TIMER_BOTTOM, ms as u32, None)
     }
 }
 
@@ -1137,8 +1169,7 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
     let mut mtime = config::modified(&cfg_path);
     let timer = unsafe { SetTimer(None, TIMER_RELOAD, 1000, None) };
     let dialog_timer = unsafe { SetTimer(None, TIMER_DIALOGS, 250, None) };
-    reset_bottom_timer(cfg.settings.bottom_reassert_ms);
-    let bottom_timer = TIMER_BOTTOM;
+    let mut bottom_timer = reset_bottom_timer(0, cfg.settings.bottom_reassert_ms);
 
     loop {
         let mut msg = MSG::default();
@@ -1180,7 +1211,14 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
                 let now = config::modified(&cfg_path);
                 if now != mtime {
                     mtime = now;
-                    reload(&mut app, &mut cfg, &mut tray, suspended, &cfg_path);
+                    reload(
+                        &mut app,
+                        &mut cfg,
+                        &mut tray,
+                        suspended,
+                        &cfg_path,
+                        &mut bottom_timer,
+                    );
                     flash = Some(Instant::now());
                 }
             }
@@ -1203,7 +1241,14 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
                     }
                 }
                 Cmd::Reload => {
-                    reload(&mut app, &mut cfg, &mut tray, suspended, &cfg_path);
+                    reload(
+                        &mut app,
+                        &mut cfg,
+                        &mut tray,
+                        suspended,
+                        &cfg_path,
+                        &mut bottom_timer,
+                    );
                     flash = Some(Instant::now());
                     // Avoid re-running the same reload on the next timer tick.
                     mtime = config::modified(&cfg_path);
@@ -1258,7 +1303,14 @@ pub fn run_daemon(cfg_path: PathBuf, mut cfg: Config) -> Result<()> {
 
 /// Re-read the config and swap hotkeys in place. Any failure keeps the old
 /// bindings working; conflicts are reported per combo and the rest register.
-fn reload(app: &mut App<Win32>, cfg: &mut Config, tray: &mut Tray, suspended: bool, path: &Path) {
+fn reload(
+    app: &mut App<Win32>,
+    cfg: &mut Config,
+    tray: &mut Tray,
+    suspended: bool,
+    path: &Path,
+    bottom_timer: &mut usize,
+) {
     let new = match config::reload(path) {
         Ok(c) => c,
         Err(e) => {
@@ -1278,7 +1330,7 @@ fn reload(app: &mut App<Win32>, cfg: &mut Config, tray: &mut Tray, suspended: bo
         *cfg = new;
         app.set_gap(cfg.settings.gap);
         mouse::set_modifiers(cfg.settings.drag_modifier);
-        reset_bottom_timer(cfg.settings.bottom_reassert_ms);
+        *bottom_timer = reset_bottom_timer(*bottom_timer, cfg.settings.bottom_reassert_ms);
         tray.set_status("desktop-tools-rs — config reloaded (hotkeys suspended)");
         tray.set_state(State::ReloadOk);
         return;
@@ -1303,7 +1355,7 @@ fn reload(app: &mut App<Win32>, cfg: &mut Config, tray: &mut Tray, suspended: bo
     }
     app.set_gap(cfg.settings.gap);
     mouse::set_modifiers(cfg.settings.drag_modifier);
-    reset_bottom_timer(cfg.settings.bottom_reassert_ms);
+    *bottom_timer = reset_bottom_timer(*bottom_timer, cfg.settings.bottom_reassert_ms);
     if let Some(msg) = config::conflict_message(&failed) {
         eprintln!("warn: {msg}");
     }

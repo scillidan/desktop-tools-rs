@@ -442,6 +442,11 @@ impl Platform for X11 {
 
     fn set_always_on_bottom(&self, id: WinId, on: bool) -> Result<()> {
         self.send_wm_state(id as u32, if on { 1 } else { 0 }, self.a.state_below, 0)?;
+        if !on {
+            // Undo targets the window the user just focused: raise it too.
+            let aux = xproto::ConfigureWindowAux::new().stack_mode(xproto::StackMode::ABOVE);
+            self.conn.configure_window(id as u32, &aux)?.check()?;
+        }
         self.conn.flush()?;
         Ok(())
     }

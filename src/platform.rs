@@ -48,7 +48,9 @@ pub trait Platform {
     fn is_always_on_top(&self, id: WinId) -> bool;
     fn set_always_on_top(&self, id: WinId, on: bool) -> Result<()>;
     /// Keep the window at the bottom of the Z order (counterpart of topmost).
-    /// Windows has no native flag; that backend re-asserts it on its 1 s tick.
+    /// Windows has no native flag; that backend re-asserts it on its
+    /// `bottomReassertMs` timer. Turning it off also raises the window: undo
+    /// targets the window the user just focused, which belongs on top.
     fn is_always_on_bottom(&self, _id: WinId) -> bool {
         false
     }
